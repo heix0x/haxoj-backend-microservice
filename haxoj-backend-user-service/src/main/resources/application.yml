@@ -1,0 +1,88 @@
+# 用户服务配置文件
+spring:
+  application:
+    name: haxoj-backend-user-service
+  # 默认 dev 环境
+  profiles:
+    active: dev
+  # 支持 knife4j / swagger
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  # session 配置
+  session:
+    # 分布式 session：登录态写入 Redis，其它微服务（question-service）才能读到同一份 session
+    store-type: redis
+    # 30 天过期
+    timeout: 2592000
+  # 数据库配置
+  # todo 需替换配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/my_db
+    username: root
+    password: ${MYSQL_PASSWORD:}
+  # Redis 配置
+  # todo 需替换配置
+  redis:
+    database: 1
+    host: localhost
+    port: 6379
+    timeout: 5000
+    password:
+  # 文件上传
+  servlet:
+    multipart:
+      # 大小限制
+      max-file-size: 10MB
+  # 注册中心 Nacos（服务发现）
+  cloud:
+    nacos:
+      discovery:
+        # 本地 Nacos（standalone 模式），原阿里云 MSE 公网地址已不可解析
+        server-addr: 127.0.0.1:8848
+        username: nacos
+        password: nacos
+        namespace: public
+    # 流量防护 Sentinel
+    sentinel:
+      transport:
+        dashboard: localhost:8080
+      eager: true
+server:
+  address: 0.0.0.0
+  port: 8101
+  servlet:
+    context-path: /api
+    # cookie 30 天过期
+    session:
+      cookie:
+        max-age: 2592000
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+# 对象存储
+# todo 需替换配置
+cos:
+  client:
+    accessKey: xxx
+    secretKey: xxx
+    region: xxx
+    bucket: xxx
+# 接口文档配置
+knife4j:
+  enable: true
+  openapi:
+    title: "接口文档"
+    version: 1.0
+    group:
+      default:
+        api-rule: package
+        api-rule-resources:
+          - com.hax.haxojbackend.controller

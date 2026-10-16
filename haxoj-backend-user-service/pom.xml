@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承父工程 -->
+    <parent>
+        <groupId>com.hax</groupId>
+        <artifactId>haxoj-backend-microservice</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>haxoj-backend-user-service</artifactId>
+    <name>haxoj-backend-user-service</name>
+    <description>用户服务：注册登录、权限与管理</description>
+
+    <dependencies>
+        <!-- Web 与注册发现：仅 Web 类服务需要，不放在父工程 dependencies 中，避免污染网关模块 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- 持久层：版本由父工程 dependencyManagement 统一管控，此处不写版本号 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 分布式 session：把 HttpSession 存到 Redis，让 question-service 也能读到登录态 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+
+        <!-- 内部模块：版本随父工程 ${project.version} 联动 -->
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-model</artifactId>
+        </dependency>
+        <!-- 服务契约：UserService 接口定义在 service-client，UserServiceImpl 实现它 -->
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-service-client</artifactId>
+        </dependency>
+
+        <!-- AOP：AuthInterceptor 用到 org.aspectj.lang.* -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        <!-- 对象存储：CosManager / CosClientConfig 使用腾讯云 COS SDK -->
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+        </dependency>
+
+        <!-- 开发期热部署（仅运行期、不传递） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 可执行服务：显式启用 Boot 打包插件 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

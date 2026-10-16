@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承父工程：依赖版本、编译级别、编码、插件版本全部来自父工程 -->
+    <parent>
+        <groupId>com.hax</groupId>
+        <artifactId>haxoj-backend-microservice</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>haxoj-backend-model</artifactId>
+    <name>haxoj-backend-model</name>
+    <description>领域模型模块：实体类、DTO、VO、枚举</description>
+
+    <dependencies>
+        <!-- MyBatis-Plus 注解：实体类的 @TableName / @TableId / @TableField / @TableLogic 由它提供。
+             只用注解，所以引最轻的 mybatis-plus-annotation，不必把整个 starter 拖进模型库 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-annotation</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+        <!-- 内部模块依赖：QuestionQueryRequest 等 extends PageRequest（在 common 中） -->
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-common</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

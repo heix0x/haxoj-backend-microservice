@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承父工程：依赖版本、编译级别、编码、插件版本全部来自父工程 -->
+    <parent>
+        <groupId>com.hax</groupId>
+        <artifactId>haxoj-backend-microservice</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>haxoj-backend-common</artifactId>
+    <name>haxoj-backend-common</name>
+    <description>公共模块：统一返回对象、错误码、全局异常与通用工具类</description>
+
+    <dependencies>
+        <!-- Web 相关：GlobalExceptionHandler（@RestControllerAdvice）、CorsConfig（WebMvcConfigurer）、
+             JsonConfig（Jackson 定制）、NetUtils（HttpServletRequest）。
+             注意：网关模块基于 WebFlux，且不依赖 common，所以这里引入 Web 不会与网关冲突 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- MyBatis-Plus：MyBatisPlusConfig 用到了 MybatisPlusInterceptor / PaginationInnerInterceptor / @MapperScan -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+        </dependency>
+        <!-- AOP：LogInterceptor 用到 org.aspectj.lang.* -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

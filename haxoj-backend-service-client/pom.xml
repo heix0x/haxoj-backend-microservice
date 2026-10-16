@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承父工程 -->
+    <parent>
+        <groupId>com.hax</groupId>
+        <artifactId>haxoj-backend-microservice</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>haxoj-backend-service-client</artifactId>
+    <name>haxoj-backend-service-client</name>
+    <description>服务调用模块：各微服务对外暴露的 Feign 客户端接口定义</description>
+
+    <dependencies>
+        <!-- 服务间调用：Feign 客户端接口依赖 Web 与 OpenFeign，版本由父工程 BOM 锁定 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
+        <!-- 复用公共返回对象与领域模型 -->
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hax</groupId>
+            <artifactId>haxoj-backend-model</artifactId>
+        </dependency>
+        <!-- 说明：重构后本模块只放 Feign 契约接口，方法签名只用实体类与 JDK 集合，
+             不再出现 IService / Page / QueryWrapper，因此无需再显式依赖 MyBatis-Plus -->
+    </dependencies>
+
+</project>

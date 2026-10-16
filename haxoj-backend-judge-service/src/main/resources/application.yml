@@ -1,0 +1,48 @@
+# 判题服务配置文件
+spring:
+  application:
+    name: haxoj-backend-judge-service
+  # 默认 dev 环境
+  profiles:
+    active: dev
+  # session 配置
+  session:
+    timeout: 2592000
+  # 数据库配置
+  # todo 需替换配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/my_db
+    username: root
+    password: ${MYSQL_PASSWORD:}
+  # 注册中心 Nacos（服务发现）
+  cloud:
+    nacos:
+      discovery:
+        # 本地 Nacos（standalone 模式），原阿里云 MSE 公网地址已不可解析
+        server-addr: 127.0.0.1:8848
+        username: nacos
+        password: nacos
+        namespace: public
+    # 流量防护 Sentinel
+    sentinel:
+      transport:
+        dashboard: localhost:8080
+      eager: true
+server:
+  address: 0.0.0.0
+  port: 8103
+  servlet:
+    context-path: /api
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+# 代码沙箱配置
+codesandbox:
+  type: remote
