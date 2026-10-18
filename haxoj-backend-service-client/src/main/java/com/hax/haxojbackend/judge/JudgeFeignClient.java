@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * <p>判题通常耗时较长，调用方（question-service）用 CompletableFuture 异步调用，
  * 不阻塞用户请求，所以这里只暴露一个「开始判题」的入口。</p>
  */
-@FeignClient(name = "haxoj-backend-judge-service", path = "/api/judge/inner")
+@FeignClient(name = "haxoj-backend-judge-service", path = "/api/inner/judge")
 public interface JudgeFeignClient {
 
     /**

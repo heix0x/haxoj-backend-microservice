@@ -1,4 +1,4 @@
-package com.hax.haxojbackend.controller.inner;
+package com.hax.haxojbackend.inner;
 
 import com.hax.haxojbackend.judge.JudgeService;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
@@ -13,9 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>对应 service-client 里的 {@code JudgeFeignClient}。</p>
  *
+ * <p>路径排在 {@code /api/inner/} 段下：与另外两个 inner 保持一致，且天然不被任何对外路由覆盖。</p>
  */
 @RestController
-@RequestMapping("/judge/inner")
+@RequestMapping("/inner/judge")
 public class JudgeInnerController {
 
     @Resource

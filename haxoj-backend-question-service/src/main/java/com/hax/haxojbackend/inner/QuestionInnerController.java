@@ -1,4 +1,4 @@
-package com.hax.haxojbackend.controller.inner;
+package com.hax.haxojbackend.inner;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.hax.haxojbackend.model.entity.Question;
@@ -18,9 +18,12 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>对应 service-client 里的 {@code QuestionFeignClient}，方法一一对应。</p>
  *
+ * <p>两点刻意安排：路径排在 {@code /api/inner/} 段下（避免落进对外路由
+ * {@code Path=/api/question/**}）；包放在 {@code com.hax.haxojbackend.inner}
+ * 而非 {@code controller.inner}（避免被 knife4j 的包扫描带进 /doc.html）。</p>
  */
 @RestController
-@RequestMapping("/question/inner")
+@RequestMapping("/inner/question")
 public class QuestionInnerController {
 
     @Resource

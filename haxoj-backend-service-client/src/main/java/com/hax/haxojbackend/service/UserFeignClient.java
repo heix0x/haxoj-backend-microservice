@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * <p>{@code name} 要与 user-service 的 {@code spring.application.name} 一致，
  * {@code path} 与 user-service 的 {@code UserInnerController} 前缀一致。</p>
  */
-@FeignClient(name = "haxoj-backend-user-service", path = "/api/user/inner")
+@FeignClient(name = "haxoj-backend-user-service", path = "/api/inner/user")
 public interface UserFeignClient {
 
     /**

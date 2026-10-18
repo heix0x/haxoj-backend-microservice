@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * Feign 无法把它序列化成 HTTP 请求，所以必须换成「具名方法」——由数据归属方
  * （question-service）自己去做原子更新，调用方只传 questionId。</p>
  */
-@FeignClient(name = "haxoj-backend-question-service", path = "/api/question/inner")
+@FeignClient(name = "haxoj-backend-question-service", path = "/api/inner/question")
 public interface QuestionFeignClient {
 
     /**
