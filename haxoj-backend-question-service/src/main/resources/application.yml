@@ -39,13 +39,17 @@ spring:
         username: nacos
         password: nacos
         namespace: public
+        # 注册回环地址：与 server.address 成对，避免 Nacos 登记成局域网 IP 后 Feign 连不上
+        ip: 127.0.0.1
     # 流量防护 Sentinel
     sentinel:
       transport:
         dashboard: localhost:8080
       eager: true
 server:
-  address: 0.0.0.0
+  # 只监听回环：业务端口不对局域网/公网开放，外部只能经网关 8001 进来
+  # 与下方 nacos.discovery.ip 必须成对改，否则 Feign/网关会连到未监听的地址
+  address: 127.0.0.1
   port: 8102
   servlet:
     context-path: /api
