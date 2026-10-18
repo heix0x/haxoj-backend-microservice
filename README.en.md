@@ -258,3 +258,13 @@ haxoj-backend-microservice/
 
 - The version is defined once in the parent `pom.xml` `<version>` (currently `0.0.1-SNAPSHOT`); child modules inherit it via `${project.version}` — **never hard-code a version in a child module**.
 - To add a third-party dependency: pin the version in the parent `properties` → declare it in `dependencyManagement` → only then reference it version-less in a child module.
+
+## 9. Acknowledgements
+
+This project started from the **course source code** of the online-judge system by 程序员鱼皮 / 编程导航,
+which provided the starting point and the overall skeleton.
+
+The changes made afterwards are my own work: splitting the monolith into microservices, adopting Nacos for
+service discovery and configuration, replacing hand-written HTTP calls with OpenFeign, and moving business
+interfaces back into each service while keeping only the contracts in `service-client` — including all the
+pitfalls and trade-offs documented in sections 6 and 7. **Every judgement call and every mistake in them is mine.**
