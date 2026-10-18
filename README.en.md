@@ -53,11 +53,9 @@ Backend of an online judge (OJ) system — microservice edition.
 
 ```mermaid
 flowchart LR
-  FE[haxoj-frontend<br/>Vue3 dev:5173] -->|HTTP direct| US
-  FE -->|HTTP via gateway| GW
-  GW[haxoj-backend-gateway :8080<br/>routes not configured yet] --> US
+  FE[haxoj-frontend<br/>Vue3 dev:5173] -->|HTTP, always via gateway| GW
+  GW[haxoj-backend-gateway :8001<br/>the only public entry] --> US
   GW --> QS
-  GW --> JS
   US[haxoj-backend-user-service :8101] --> DB[(MySQL my_db)]
   QS[haxoj-backend-question-service :8102] --> DB
   JS[haxoj-backend-judge-service :8103] --> DB
@@ -77,10 +75,10 @@ flowchart LR
 
 | Service | Port | context-path | Notes |
 | --- | --- | --- | --- |
-| `haxoj-backend-gateway` | 8080 | — | WebFlux gateway; **its `application.properties` in this repo only sets the port**, routing rules are not in place |
+| `haxoj-backend-gateway` | 8001 | — | WebFlux gateway, **the only public entry**; routes are in place (`/api/user/**`, `/api/file/**` → user; `/api/question/**`, `/api/question_submit/**` → question) and it blocks `/api/inner/**` |
 | `haxoj-backend-user-service` | 8101 | `/api` | Users, permissions, file upload; exposes `/user/**`, `/file/upload` |
 | `haxoj-backend-question-service` | 8102 | `/api` | Questions and submissions; exposes `/question/**`, `/question_submit/**` |
-| `haxoj-backend-judge-service` | 8103 | `/api` | Judging logic; **no public business controller** — it only exposes the inner endpoint `JudgeInnerController` (`/api/judge/inner/do`) for question-service to call |
+| `haxoj-backend-judge-service` | 8103 | `/api` | Judging logic; **no public business controller** — it only exposes the inner endpoint `JudgeInnerController` (`/api/inner/judge/do`) for question-service to call, and the gateway exposes no route for it |
 | `haxoj-code-sandbox` | 8080 | — | Separately deployed sandbox service exposing `POST /sandbox/execute` |
 
 **Shared modules** (not runnable services, not packaged as fat jars, only referenced as dependencies)
@@ -93,7 +91,7 @@ flowchart LR
 
 **Service interactions and data flow**
 
-1. **Frontend → backend**: the frontend uses `VITE_API_BASE_URL` (currently `http://localhost:8101`); generated API paths already carry the `/api` prefix.
+1. **Frontend → backend**: the frontend uses `VITE_API_BASE_URL`, currently pointing at the gateway (`http://localhost:8001`); generated API paths already carry the `/api` prefix.
 2. **Submission flow**: `question-service` writes the submission into the `question_submit` table with status `WAITING`, then **calls `judge-service` remotely** via `JudgeFeignClient.doJudge()` (wrapped in `CompletableFuture.runAsync`, so it runs asynchronously and never blocks the user request), and returns the `questionSubmitId` immediately. With a remote proxy the local circular dependency disappears, so the former `@Lazy` was removed.
 3. **Judging flow**: `JudgeServiceImpl.doJudge()` reads the submission and the question through `QuestionFeignClient` → picks a sandbox via `CodeSandboxFactory` based on `codesandbox.type` → in `remote` mode `RemoteCodeSandbox` **calls the standalone sandbox service over HTTP** with header `auth = MD5("secretKey")` → compares output using a language strategy (`JavaLanguageJudgeStrategy` / `DefaultJudgeStrategy`) → writes the status and `judgeInfo` back through `QuestionFeignClient`.
 4. **Sandbox address**: `SANDBOX_EXECUTE_URL` in `RemoteCodeSandbox` is currently hard-coded to `http://192.168.221.45:8080/sandbox/execute`.
@@ -107,11 +105,11 @@ flowchart LR
 | `judge-service` | `QuestionFeignClient` | read submission / question, write back status, increment the accepted count |
 | `user-service` | — | provider only; OpenFeign is not even on its classpath |
 
-> On the provider side, these calls are served by each service's `XxxInnerController` (`/api/user/inner`, `/api/question/inner`, `/api/judge/inner`).
+> On the provider side, these calls are served by each service's `XxxInnerController` (`/api/inner/user`, `/api/inner/question`, `/api/inner/judge`).
 > Note: providers do **not** `implements` the contract interfaces — the two sides agree by "path + parameters + return type" instead.
 > See `OJ 项目文档/notes/2026-10-17_Feign声明式服务调用与service-client.md`.
 
-> ⚠️ Both the sandbox service and the gateway use port 8080, and the Sentinel Dashboard is also configured as `localhost:8080`. Deployments must separate these across hosts or ports (see section 7).
+> ⚠️ Both the sandbox service and the Sentinel Dashboard use port 8080 (the gateway moved to 8001 to avoid this). Deployments must separate these across hosts or ports (see section 7).
 
 ## 3. Requirements
 
@@ -122,7 +120,7 @@ flowchart LR
 | MySQL | 8.x | `mysql-connector-j`, database `my_db` |
 | Redis | 6+ | `localhost:6379`, `database: 1`; **configured only, unused in code** |
 | Nacos | 2.x (standalone) | `127.0.0.1:8848`, credentials `nacos / nacos`, namespace `public` |
-| Sentinel Dashboard | optional | configured as `localhost:8080` (conflicts with the gateway port, adjust as needed) |
+| Sentinel Dashboard | optional | configured as `localhost:8080` (conflicts with the sandbox service port, adjust as needed) |
 | Docker | optional | only needed for the sandbox's Docker mode |
 | Node.js | needed to build the frontend | see `haxoj-frontend` |
 
@@ -176,7 +174,7 @@ java -jar haxoj-backend-user-service/target/haxoj-backend-user-service-0.0.1-SNA
 
 1. Open the Nacos console → service list; all services should be registered.
 2. Hit the "current user" endpoint (a business error code when not logged in means the service is up):
-   `GET http://localhost:8101/api/user/get/login`
+   `GET http://localhost:8001/api/user/get/login` (via the gateway; hitting 8101 directly works too)
 3. API docs (Knife4j enabled in user / question services): `http://localhost:8101/api/doc.html`, `http://localhost:8102/api/doc.html`
 4. The judging path additionally requires `haxoj-code-sandbox` to be running and reachable.
 
@@ -216,7 +214,7 @@ haxoj-backend-microservice/
 - Build: `mvn clean package -DskipTests`; each runnable service produces a fat jar.
 - Run: `java -jar xxx-service.jar --spring.config.additional-location=/path/to/prod.yml` to override `application.yml` with an external file — **never bake plaintext passwords into the jar**.
 - Key external settings: `MYSQL_PASSWORD`, Nacos `server-addr` / `namespace`, Sentinel `dashboard`, sandbox address.
-- Port planning: the gateway, business services, sandbox service and Sentinel Dashboard **must use distinct ports** (the current defaults conflict on 8080).
+- Port planning: the gateway (8001), business services (8101~8103), sandbox service (8080) and Sentinel Dashboard (8080) **must use distinct ports** (the sandbox and Sentinel currently both default to 8080).
 
 **Notes**
 
@@ -234,7 +232,7 @@ haxoj-backend-microservice/
 | Startup error `No Feign Client for loadBalancing defined` | since Spring Cloud 2021.x, `openfeign` no longer bundles a load balancer | add `spring-cloud-starter-loadbalancer` to the consumer's pom (already done in question / judge services) |
 | Injecting `XxxFeignClient` throws `NoSuchBeanDefinitionException` | the consumer's main class is missing `@EnableFeignClients`, or the contracts are outside its scanned package | add `@EnableFeignClients` to the main class; contracts under `com.hax.haxojbackend` sub-packages are scanned by default |
 | Gateway won't start / MVC conflict | `spring-boot-starter-web` was added by mistake | keep only Gateway (WebFlux) dependencies |
-| Sentinel console unreachable | `dashboard` port 8080 equals the gateway port | move the Sentinel Dashboard to another port and update config |
+| Sentinel console unreachable | `dashboard` port 8080 equals the sandbox service port | move the Sentinel Dashboard to another port and update config |
 | Database connection fails | password not injected | set the `MYSQL_PASSWORD` env var, or put it in plain text in the yml |
 | Frontend session never established | cross-origin cookies not sent | frontend needs `withCredentials` (see `haxoj-frontend`) and the backend `CorsConfig` must allow the origin |
 | Submission stays `WAITING` forever | judging is triggered asynchronously (`CompletableFuture.runAsync`) and its exception is currently not captured, so failures are invisible to the client | verify `judge-service` is registered in Nacos and its logs show no errors; the missing exception handling is a known limitation (see section 6 notes) |

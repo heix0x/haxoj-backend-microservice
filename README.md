@@ -53,11 +53,9 @@
 
 ```mermaid
 flowchart LR
-  FE[haxoj-frontend<br/>Vue3 dev:5173] -->|HTTP 直连| US
-  FE -->|HTTP 经网关| GW
-  GW[haxoj-backend-gateway :8080<br/>路由规则待配置] --> US
+  FE[haxoj-frontend<br/>Vue3 dev:5173] -->|HTTP 全部经网关| GW
+  GW[haxoj-backend-gateway :8001<br/>唯一对外入口] --> US
   GW --> QS
-  GW --> JS
   US[haxoj-backend-user-service :8101] --> DB[(MySQL my_db)]
   QS[haxoj-backend-question-service :8102] --> DB
   JS[haxoj-backend-judge-service :8103] --> DB
@@ -77,10 +75,10 @@ flowchart LR
 
 | 服务 | 端口 | context-path | 说明 |
 | --- | --- | --- | --- |
-| `haxoj-backend-gateway` | 8080 | — | WebFlux 网关；**仓库内 `application.properties` 仅配置了端口**，路由规则尚未落地 |
+| `haxoj-backend-gateway` | 8001 | — | WebFlux 网关，**唯一对外入口**；路由已落地（`/api/user/**`、`/api/file/**` → user；`/api/question/**`、`/api/question_submit/**` → question），并拦住 `/api/inner/**` |
 | `haxoj-backend-user-service` | 8101 | `/api` | 用户、权限、文件上传；对外提供 `/user/**`、`/file/upload` |
 | `haxoj-backend-question-service` | 8102 | `/api` | 题目与提交；对外提供 `/question/**`、`/question_submit/**` |
-| `haxoj-backend-judge-service` | 8103 | `/api` | 判题逻辑；**无对外业务 Controller**，仅暴露内部接口 `JudgeInnerController`（`/api/judge/inner/do`）供 question-service 调用 |
+| `haxoj-backend-judge-service` | 8103 | `/api` | 判题逻辑；**无对外业务 Controller**，仅暴露内部接口 `JudgeInnerController`（`/api/inner/judge/do`）供 question-service 调用，网关也不为其开路由 |
 | `haxoj-code-sandbox` | 8080 | — | 独立部署的沙箱服务，对外 `POST /sandbox/execute` |
 
 **公共模块**（不是可执行服务，不打包成 fat jar，仅作为依赖被引用）
@@ -93,7 +91,7 @@ flowchart LR
 
 **服务间调用关系与数据流**
 
-1. **前端 → 后端**：前端通过 `VITE_API_BASE_URL` 访问后端（当前指向 `http://localhost:8101`），生成的接口路径自带 `/api` 前缀。
+1. **前端 → 后端**：前端通过 `VITE_API_BASE_URL` 访问后端（当前指向网关 `http://localhost:8001`），生成的接口路径自带 `/api` 前缀。
 2. **题目提交链路**：`question-service` 收到提交后写入 `question_submit` 表，状态置为 `WAITING`，再通过 `JudgeFeignClient.doJudge()` **远程调用 `judge-service`**（包在 `CompletableFuture.runAsync` 中，异步执行、不阻塞用户请求），随后立即返回 `questionSubmitId`。改用远程代理后本地循环依赖消失，原先的 `@Lazy` 已移除。
 3. **判题链路**：`JudgeServiceImpl.doJudge()` 通过 `QuestionFeignClient` 读取提交记录与题目 → 通过 `CodeSandboxFactory` 按 `codesandbox.type` 选沙箱 → `remote` 模式下由 `RemoteCodeSandbox` **以 HTTP 调用独立的沙箱服务**，请求头 `auth = MD5("secretKey")` → 按语言策略（`JavaLanguageJudgeStrategy` / `DefaultJudgeStrategy`）比对输出 → 再通过 `QuestionFeignClient` 回写提交状态与 `judgeInfo`。
 4. **沙箱地址**：`RemoteCodeSandbox` 中的 `SANDBOX_EXECUTE_URL` 当前硬编码为 `http://192.168.221.45:8080/sandbox/execute`。
@@ -107,11 +105,11 @@ flowchart LR
 | `judge-service` | `QuestionFeignClient` | 读提交 / 题目、回写状态、题目通过数 +1 |
 | `user-service` | — | 纯提供方，未引入 OpenFeign |
 
-> 提供方一侧由各自的 `XxxInnerController`（`/api/user/inner`、`/api/question/inner`、`/api/judge/inner`）承接这些调用。
+> 提供方一侧由各自的 `XxxInnerController`（`/api/inner/user`、`/api/inner/question`、`/api/inner/judge`）承接这些调用。
 > 注意：提供方**不是** `implements` 契约接口，而是靠「路径 + 参数 + 返回类型」的约定对齐。
 > 详见 `OJ 项目文档/notes/2026-10-17_Feign声明式服务调用与service-client.md`。
 
-> ⚠️ 沙箱服务与网关都使用 8080 端口，Sentinel Dashboard 也配置为 `localhost:8080`。部署时需把它们错开到不同机器或不同端口（见第 7 节）。
+> ⚠️ 沙箱服务与 Sentinel Dashboard 都使用 8080 端口（网关已改用 8001 避开）。部署时需把它们错开到不同机器或不同端口（见第 7 节）。
 
 ## 3. 环境依赖
 
@@ -122,7 +120,7 @@ flowchart LR
 | MySQL | 8.x | `mysql-connector-j`，库名 `my_db` |
 | Redis | 6+ | 地址 `localhost:6379`，`database: 1`；**当前仅配置，代码未使用** |
 | Nacos | 2.x（standalone） | `127.0.0.1:8848`，账号 `nacos / nacos`，命名空间 `public` |
-| Sentinel Dashboard | 可选 | 配置为 `localhost:8080`（与网关端口冲突，需自行调整） |
+| Sentinel Dashboard | 可选 | 配置为 `localhost:8080`（与沙箱服务端口冲突，需自行调整） |
 | Docker | 可选 | 仅当代码沙箱使用 Docker 模式时需要 |
 | Node.js | 前端构建需要 | 见 `haxoj-frontend` |
 
@@ -176,7 +174,7 @@ java -jar haxoj-backend-user-service/target/haxoj-backend-user-service-0.0.1-SNA
 
 1. 打开 Nacos 控制台 → 服务列表，应能看到各服务已注册。
 2. 访问用户登录态接口（未登录会返回业务错误码，说明服务已起来）：
-   `GET http://localhost:8101/api/user/get/login`
+   `GET http://localhost:8001/api/user/get/login`（经网关；直连 8101 同样可用）
 3. 接口文档（user / question 服务已开启 Knife4j）：`http://localhost:8101/api/doc.html`、`http://localhost:8102/api/doc.html`
 4. 判题链路需另起 `haxoj-code-sandbox` 服务并确保沙箱地址可达。
 
@@ -216,7 +214,7 @@ haxoj-backend-microservice/
 - 打包：`mvn clean package -DskipTests`，每个可执行服务生成 fat jar。
 - 启动：`java -jar xxx-service.jar --spring.config.additional-location=/path/to/prod.yml`，用外部配置文件覆盖 `application.yml`，**不要把明文密码打进 jar**。
 - 关键外置项：`MYSQL_PASSWORD`、Nacos `server-addr` / `namespace`、Sentinel `dashboard`、沙箱地址。
-- 端口规划：网关、各业务服务、沙箱服务、Sentinel Dashboard **必须错开**（当前默认值存在 8080 冲突）。
+- 端口规划：网关（8001）、各业务服务（8101~8103）、沙箱服务（8080）、Sentinel Dashboard（8080）**必须错开**（沙箱与 Sentinel 当前默认都是 8080）。
 
 **注意事项**
 
@@ -234,7 +232,7 @@ haxoj-backend-microservice/
 | 启动报 `No Feign Client for loadBalancing defined` | Spring Cloud 2021.x 起 `openfeign` 不再自带负载均衡器 | 消费方 pom 补 `spring-cloud-starter-loadbalancer`（question / judge 服务已加） |
 | 注入 `XxxFeignClient` 报 `NoSuchBeanDefinitionException` | 消费方启动类未加 `@EnableFeignClients`，或契约不在其扫描包下 | 在启动类加 `@EnableFeignClients`；契约位于 `com.hax.haxojbackend` 子包下时默认可扫到 |
 | 网关起不来 / 报 MVC 冲突 | 误引入了 `spring-boot-starter-web` | 网关只保留 Gateway（WebFlux）相关依赖 |
-| Sentinel 控制台连不上 | `dashboard` 端口 8080 与网关端口相同 | 把 Sentinel Dashboard 换到其他端口并同步修改配置 |
+| Sentinel 控制台连不上 | `dashboard` 端口 8080 与沙箱服务端口相同 | 把 Sentinel Dashboard 换到其他端口并同步修改配置 |
 | 数据库连不上 | 密码未注入 | 设置环境变量 `MYSQL_PASSWORD`，或直接在 yml 中填明文 |
 | 前端登录态建立不起来 | 跨域 Cookie 未携带 | 前端需 `withCredentials`（见 `haxoj-frontend`），同时后端 `CorsConfig` 放开对应来源 |
 | 题目提交后一直 `WAITING` | 判题为异步触发（`CompletableFuture.runAsync`），其异常当前未被捕获，失败时前端无感知 | 确认 `judge-service` 已注册到 Nacos 且日志无报错；异步未做异常兜底属已知限制（见第 6 节注意事项） |
