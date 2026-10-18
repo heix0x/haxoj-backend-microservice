@@ -76,6 +76,12 @@
             <artifactId>cos_api</artifactId>
         </dependency>
 
+        <!-- 接口文档：openapi2（springfox，Swagger2 规范），供网关聚合；版本由父工程管控 -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi2-spring-boot-starter</artifactId>
+        </dependency>
+
         <!-- 开发期热部署（仅运行期、不传递） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

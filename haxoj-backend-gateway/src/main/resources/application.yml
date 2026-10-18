@@ -1,0 +1,80 @@
+server:
+  port: 8001                          # 唯一对外端口；8101~8103 留给业务服务，8080 被沙箱/Sentinel 占用
+
+spring:
+  application:
+    name: haxoj-backend-gateway
+
+  main:
+    web-application-type: reactive    # 显式声明：网关必须是 WebFlux 栈
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        username: nacos
+        password: nacos
+        namespace: public
+
+    gateway:
+      # ── 路由：外部路径 → 服务名 ──────────────────────────────
+      # 注意 1：judge-service 没有对外 Controller，这里刻意不开路由
+      # 注意 2：下面两条路由都覆盖不到 /api/inner/**，所以 inner 天然不可达
+      #        （双保险：InnerPathBlockFilter 会把含 inner 段的路径直接拦成 404）
+      routes:
+        - id: user-service
+          uri: lb://haxoj-backend-user-service
+          predicates:
+            - Path=/api/user/**,/api/file/**
+          # ── 文档聚合专用重写（只在「取文档」时命中，业务请求原样透传）──────
+          # knife4j(discover) 取文档地址 = 「本路由 Path 前缀」+ /v2/api-docs
+          #   → 它去请求 /api/user/v2/api-docs?group=default
+          # 但下游真实端点是 /api/v2/api-docs（因为 context-path=/api），中间多了一层服务段
+          # 这里把 /api/{user|file}/v2/api-docs 重写成 /api/v2/api-docs，正好落到真实端点
+          filters:
+            - RewritePath=/api/(user|file)/v2/api-docs, /api/v2/api-docs
+
+        - id: question-service
+          uri: lb://haxoj-backend-question-service
+          predicates:
+            - Path=/api/question/**,/api/question_submit/**
+          filters:
+            - RewritePath=/api/(question|question_submit)/v2/api-docs, /api/v2/api-docs
+
+      # ── 跨域：全系统只此一份 ─────────────────────────────────
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"   # 不能写 allowedOrigins: "*"（与 allowCredentials 冲突）
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
+
+      # ── 下游还在加 CORS 头，先靠它去重 ───────────────────────
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+
+      # ── 超时：不配就没有业务层面的上限 ───────────────────────
+      httpclient:
+        connect-timeout: 5000        # 毫秒
+        response-timeout: 30s        # Duration 写法
+
+# ── 接口文档聚合：把各业务服务的 Swagger2 文档集中到网关一处 ────────
+# 访问入口：http://localhost:8001/doc.html
+knife4j:
+  gateway:
+    enabled: true                  # 总开关；生产环境务必置 false，否则等于把接口清单对外公开
+    strategy: discover             # discover=从 Nacos 自动发现子服务，服务上下线文档自动跟随，无需改配置
+    discover:
+      enabled: true
+      version: swagger2            # 子服务统一是 Swagger2 规范（openapi2 / springfox）
+      # 必须排除网关自身：否则它会去拉自己的文档（网关没有该文档，会报错或出现空分组）
+      # 同时排除 judge-service：它只有 inner 接口，不参与对外文档
+      excluded-services:
+        - haxoj-backend-gateway
+        - haxoj-backend-judge-service
+      # ⚠️ 这里刻意 *不* 写 swagger2.url：
+      #    knife4j 4.4.0 的 discover 分支根本没有读取该项（内部硬编码 /v2/api-docs?group=default），
+      #    写了也不生效。真正让「聚合取的地址」落到下游真实端点(/api/v2/api-docs)的办法，
+      #    是上面两条业务路由里的 RewritePath —— 详见 [[2026-10-18_Knife4j网关文档聚合]] §4.1

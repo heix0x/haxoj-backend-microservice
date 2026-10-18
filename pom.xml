@@ -44,6 +44,8 @@
         <commons-collections4.version>4.4</commons-collections4.version>
         <mybatis-plus.version>3.5.2</mybatis-plus.version>
         <cos.version>5.6.89</cos.version>
+        <!-- 接口文档：单体用的是 openapi2（底层 springfox，产出 Swagger2 规范）-->
+        <knife4j.version>4.4.0</knife4j.version>
 
         <!-- 覆盖 Spring Boot BOM 默认的 lombok（2.6.13 锁的是 1.18.24）。
              本机 Maven 运行在 JDK 21 上，旧版 Lombok 的注解处理器会抛
@@ -93,6 +95,19 @@
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
+            </dependency>
+
+            <!-- Knife4j 接口文档：knife4j 4.x 官方支持 Spring Boot 2.4~3.0，本项目 2.6.13 在范围内。
+                 业务服务用 openapi2（Swagger2 规范），网关用 gateway starter 做聚合 -->
+            <dependency>
+                <groupId>com.github.xiaoymin</groupId>
+                <artifactId>knife4j-openapi2-spring-boot-starter</artifactId>
+                <version>${knife4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.xiaoymin</groupId>
+                <artifactId>knife4j-gateway-spring-boot-starter</artifactId>
+                <version>${knife4j.version}</version>
             </dependency>
 
             <!-- 3.2 Spring 生态 BOM：一次 import，Spring Boot / Cloud / Alibaba 全家桶版本自动对齐

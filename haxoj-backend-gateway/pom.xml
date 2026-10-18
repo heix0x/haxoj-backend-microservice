@@ -16,10 +16,17 @@
     <description>网关模块：统一入口、路由转发、限流与鉴权</description>
 
     <dependencies>
-        <!-- 网关基于 WebFlux，切勿再引入 spring-boot-starter-web（Spring MVC），否则启动报冲突 -->
+        <!-- 网关基于 WebFlux，切勿再引入 spring-boot-starter-web（Spring MVC），否则启动报冲突，
+        此依赖包含在父工程定义的 spring-cloud-dependencies 中 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        <!-- lb:// 负载均衡选实例：Spring Cloud 2021.x 起 gateway starter 不再传递 loadbalancer，
+             缺了它所有 lb:// 路由都会 503（Unable to find instance） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
         <!-- 服务发现：网关路由到各微服务实例 -->
         <dependency>
@@ -34,6 +41,14 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-alibaba-sentinel-gateway</artifactId>
+        </dependency>
+
+        <!-- 文档聚合：把各业务服务的 Swagger2 文档集中到网关的 /doc.html。
+             ⚠️ 只能引这个 WebFlux 版 starter；不要再引 knife4j-openapi2（springfox 是 Servlet 栈），
+             否则会把 Spring MVC 相关自动配置带进网关，与 WebFlux 冲突 -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-gateway-spring-boot-starter</artifactId>
         </dependency>
     </dependencies>
 
