@@ -35,3 +35,6 @@ build/
 ### 运行日志 ###
 *.log
 logs/
+
+# 文档 vault 的本地配置
+docs/.obsidian/

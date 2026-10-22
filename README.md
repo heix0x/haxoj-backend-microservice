@@ -3,10 +3,21 @@
 在线判题系统（OJ）后端 —— 微服务版。
 
 > **当前进度说明（重要）**
-> 本仓库正处于「单体 → 微服务」的拆分过程中，文档只描述**代码里真实存在的状态**：
-> - 已完成：模块拆分、依赖版本收敛、Nacos 服务注册、Sentinel 接入、远程代码沙箱对接、**跨服务 Feign 调用**（`service-client` 中 3 个契约已标注 `@FeignClient`，消费方已加 `@EnableFeignClients`，提供方已补齐内部接口）
-> - 进行中：**网关路由规则**、题库相关建表脚本
-> - 未启用：Nacos 配置中心、Redis（仅配置在案，代码未使用）、消息队列
+> 本文档只描述**代码里真实存在的状态**；更细的架构与决策见 [`docs/`](docs/README.md)，AI/新人先读 [`AGENTS.md`](AGENTS.md)。
+> - 已完成：模块拆分、依赖版本收敛、Nacos 服务注册、Sentinel 接入、远程代码沙箱对接、跨服务 Feign 调用、**网关路由 / 跨域 / inner 拦截**、**Redis 共享 Session**、Knife4j 文档聚合
+> - 进行中：MQ 异步判题、判题幂等、链路追踪、压测
+> - 未启用：Nacos 配置中心、Sentinel 规则
+
+## 0. 文档
+
+| 文档 | 内容 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | **AI / 新人的工作手册**：地图、命令、约定、边界、验收 |
+| [docs/README.md](docs/README.md) | 文档索引（按问题找文档） |
+| [docs/architecture.md](docs/architecture.md) | 系统架构、模块、数据流、关键设计 |
+| [docs/conventions.md](docs/conventions.md) | 开发规范 |
+| [docs/adr/](docs/adr/) | 架构决策记录（为什么这么选） |
+| [docs/notes/](docs/notes/) | 历史实现记录（按日期） |
 
 ## 1. 项目概述
 
@@ -19,7 +30,7 @@
 | 用户服务 | 注册、登录、注销、权限与用户管理、文件上传（腾讯云 COS） |
 | 题目服务 | 题目增删改查、题目提交、提交记录查询、题目批量导入（EasyExcel） |
 | 判题服务 | 调用代码沙箱执行判题、按策略比对结果、回写判题状态与判题信息 |
-| 网关 | 统一入口、路由转发（依赖已就位，路由规则待配置） |
+| 网关 | 统一入口、路由转发、跨域、inner 拦截（路由已落地） |
 | 代码沙箱（独立服务） | 在隔离环境中编译并运行用户代码（见 `haxoj-code-sandbox`） |
 
 **技术栈选型**
@@ -38,7 +49,7 @@
 | 服务调用 | OpenFeign + Spring Cloud LoadBalancer | `service-client` 中 3 个 `@FeignClient` 契约已可用；question / judge 服务已加 `@EnableFeignClients` 与 `loadbalancer` |
 | 持久层 | MyBatis-Plus | 3.5.2（`mybatis-plus-boot-starter` / `mybatis-plus-annotation`） |
 | 数据库 | MySQL | 驱动 `mysql-connector-j`，`jdbc:mysql://localhost:3306/my_db` |
-| 缓存 | Redis | 配置在案（localhost:6379 / db 1），**代码中未使用** |
+| 缓存 | Redis | `localhost:6379 / db 1`，**Spring Session 用它存登录态** |
 | 消息队列 | **未使用** | 无 RabbitMQ / RocketMQ / Kafka 依赖 |
 | 接口文档 | Knife4j | user / question 服务 `knife4j.enable: true` |
 | 工具库 | Hutool 5.8.8、Gson 2.9.1、commons-lang3、commons-collections4 4.4、Lombok 1.18.30 | — |
@@ -118,7 +129,7 @@ flowchart LR
 | JDK | 1.8 | 编译级别 `source/target = 1.8`；用高版本 JDK 跑 Maven 需注意 Lombok 已锁 1.18.30 |
 | Maven | 3.6+ | 父工程聚合构建 |
 | MySQL | 8.x | `mysql-connector-j`，库名 `my_db` |
-| Redis | 6+ | 地址 `localhost:6379`，`database: 1`；**当前仅配置，代码未使用** |
+| Redis | 6+ | 地址 `localhost:6379`，`database: 1`；**Spring Session 使用** |
 | Nacos | 2.x（standalone） | `127.0.0.1:8848`，账号 `nacos / nacos`，命名空间 `public` |
 | Sentinel Dashboard | 可选 | 配置为 `localhost:8080`（与沙箱服务端口冲突，需自行调整） |
 | Docker | 可选 | 仅当代码沙箱使用 Docker 模式时需要 |
