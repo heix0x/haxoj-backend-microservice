@@ -20,7 +20,7 @@ spring:
       # ── 路由：外部路径 → 服务名 ──────────────────────────────
       # 注意 1：judge-service 没有对外 Controller，这里刻意不开路由
       # 注意 2：下面两条路由都覆盖不到 /api/inner/**，所以 inner 天然不可达
-      #        （双保险：InnerPathBlockFilter 会把含 inner 段的路径直接拦成 404）
+      #        （双保险：GlobalAuthFilter 会把含 inner 段的路径直接拦成 404）
       routes:
         - id: user-service
           uri: lb://haxoj-backend-user-service
@@ -78,3 +78,10 @@ knife4j:
       #    knife4j 4.4.0 的 discover 分支根本没有读取该项（内部硬编码 /v2/api-docs?group=default），
       #    写了也不生效。真正让「聚合取的地址」落到下游真实端点(/api/v2/api-docs)的办法，
       #    是上面两条业务路由里的 RewritePath —— 详见 [[2026-10-18_Knife4j网关文档聚合]] §4.1
+
+# ── 网关统一鉴权开关 ────────────────────────────────────────────
+# false：行为与改造前一致，只拦 inner；true：白名单之外的请求一律 401（需先实现登录态读取）
+haxoj:
+  gateway:
+    auth:
+      enabled: false
