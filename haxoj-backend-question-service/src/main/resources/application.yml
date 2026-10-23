@@ -30,6 +30,24 @@ spring:
     port: 6379
     timeout: 5000
     password:
+  # RabbitMQ（host 默认 127.0.0.1：本机安装或 SSH 隧道；连 VM 时用环境变量覆盖）
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:haxoj}
+    password: ${RABBITMQ_PASSWORD:haxoj123}
+    virtual-host: /
+    # 生产端：确认消息是否到达交换机 / 是否无法路由到队列
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    # 消费端：手动 ack、每次只取一条
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        concurrency: 1
+        max-concurrency: 2
+        default-requeue-rejected: false
   # 注册中心 Nacos（服务发现）
   cloud:
     nacos:

@@ -16,6 +16,11 @@
     <description>判题服务：调用代码沙箱执行判题，并回写判题结果</description>
 
     <dependencies>
+        <!-- RabbitMQ：消费判题消息（版本由 Spring Boot BOM 管理，不要手写版本号） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

@@ -16,6 +16,11 @@
     <description>题目服务：题目管理、提交与判题调度</description>
 
     <dependencies>
+        <!-- RabbitMQ：提交后投递判题消息（版本由 Spring Boot BOM 管理，不要手写版本号） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

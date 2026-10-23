@@ -8,7 +8,6 @@ import com.hax.haxojbackend.common.ErrorCode;
 import com.hax.haxojbackend.constant.CommonConstant;
 import com.hax.haxojbackend.exception.BusinessException;
 import com.hax.haxojbackend.exception.ThrowUtils;
-import com.hax.haxojbackend.judge.JudgeFeignClient;
 import com.hax.haxojbackend.mapper.QuestionSubmitMapper;
 import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitAddRequest;
 import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitQueryRequest;
@@ -20,6 +19,7 @@ import com.hax.haxojbackend.model.enums.QuestionSubmitStatusEnum;
 import com.hax.haxojbackend.model.vo.QuestionSubmitVO;
 import com.hax.haxojbackend.model.vo.QuestionVO;
 import com.hax.haxojbackend.model.vo.UserVO;
+import com.hax.haxojbackend.mq.JudgeMessageProducer;
 import com.hax.haxojbackend.service.QuestionService;
 import com.hax.haxojbackend.service.QuestionSubmitService;
 import com.hax.haxojbackend.service.UserService;
@@ -27,7 +27,6 @@ import com.hax.haxojbackend.utils.SqlUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -49,11 +48,10 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     @Resource
     private QuestionService questionService;
 
-    // 重构后 judge-service 是独立进程，本地没有 JudgeService 的实现，
-    // 只能注入 Feign 客户端，调用它时 Feign 会自动发 HTTP 请求给 judge-service。
-    // 既然是远程代理，就不存在本地循环依赖，原来的 @Lazy 也就不需要了。
+    // 判题已改为 MQ 异步：这里只负责投递消息，不再直接 Feign 调用 judge-service。
+    // 好处：判题服务重启/变慢不会拖住提交接口；消息可重试、可进死信。
     @Resource
-    private JudgeFeignClient judgeFeignClient;
+    private JudgeMessageProducer judgeMessageProducer;
 
     /**
      * 提交题目
@@ -116,10 +114,8 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         }
 
         Long questionSubmitId = questionSubmit.getId();
-        // 执行判题服务（远程调用 judge-service，异步执行，不阻塞用户请求）
-        CompletableFuture.runAsync(() -> {
-            judgeFeignClient.doJudge(questionSubmitId);
-        });
+        // 投递到 MQ，由 judge-service 异步消费（不再直接 Feign 调用）
+        judgeMessageProducer.sendJudgeMessage(questionSubmitId);
 
         return questionSubmitId;
     }
