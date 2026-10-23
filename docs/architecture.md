@@ -88,26 +88,29 @@
 
 | 调用方 | 契约 | 提供方 | 用途 |
 |---|---|---|---|
-| question | `JudgeFeignClient` | judge | `doJudge(submitId)` 触发判题 |
+| question | ~~`JudgeFeignClient`~~ | judge | **已改为 MQ 触发**，Feign 契约保留但不再用于提交链路 |
 | question | `UserFeignClient` | user | 补全提交/题目的用户信息 |
-| judge | `QuestionFeignClient` | question | 读提交/题目、回写状态与通过数 |
+| judge | `QuestionFeignClient` | question | 读提交/题目、回写状态与通过数、原子抢占 |
 
 契约方法只保留"别的服务真正会用到"的少数几个，路径统一为 `/api/inner/{service}/**`。
 
 ### 3.3 一次判题的链路
 
 ```
-前端 POST /api/question_submit/do
-  → question-service 落库（状态：等待判题）
-  → CompletableFuture 异步调用 JudgeFeignClient.doJudge(submitId)
-  → judge-service：
-       ① Feign 读 submission / question
-       ② HTTP POST 沙箱 /sandbox/execute（带鉴权头）
-       ③ 比对输出，得出通过/失败
-       ④ Feign 回写提交状态 + 题目通过数
+前端 POST /api/question_submit/
+  → question-service 落库（状态：WAITING）
+  → 发 MQ 消息（haxoj.judge.exchange / judge.submit，消息体只带 submitId）
+  → judge-service 消费：
+       ① 幂等检查 + 原子抢占（WAITING → RUNNING）
+       ② Feign 读 submission / question
+       ③ HTTP POST 沙箱 /sandbox/execute（带鉴权头）
+       ④ 比对输出，得出通过/失败
+       ⑤ Feign 回写提交状态 + 题目通过数
+  → 成功 ack；系统异常重置 WAITING + nack → 死信队列
 ```
 
-> ⚠️ 当前是"线程池异步"，不是 MQ。服务重启会丢在途任务；下一步要换 MQ（见 §7）。
+> MQ 把「提交」和「判题」解耦：提交接口不再等待判题服务，服务重启也不会丢在途任务
+> （消息还在队列里）。幂等靠状态检查 + 原子抢占（见 §4.6）。
 
 ---
 
@@ -160,6 +163,35 @@
 - 沙箱负责编译/运行用户代码、资源限制、黑白名单；
 - 判题服务只负责"调"和"比对结果"。
 
+### 4.6 判题异步化：RabbitMQ
+
+| 项 | 值 |
+|---|---|
+| 交换机 | `haxoj.judge.exchange`（direct） |
+| 队列 | `haxoj.judge.queue`（durable，绑定 DLX） |
+| 路由键 | `judge.submit` |
+| 死信 | `haxoj.judge.dlx` → `haxoj.judge.dlq` |
+| 消息体 | `JudgeMessage { questionSubmitId, timestamp }`（只带 id） |
+| 确认 | 手动 ack；prefetch=1 |
+
+**三种消费结果**
+
+| 情况 | 处理 |
+|---|---|
+| 成功 | `basicAck` |
+| 业务异常（提交不存在等） | `basicAck`（重试无意义，避免毒消息） |
+| 系统异常（沙箱挂了/网络） | 状态重置为 WAITING + `basicNack(requeue=false)` → DLQ |
+
+**幂等**
+
+- 先检查状态：非 WAITING 直接跳过；
+- 再原子抢占：`UPDATE ... SET status=RUNNING WHERE id=? AND status=WAITING`；
+- 只有抢占成功的消费者继续判题。
+
+> 生产端开了 `publisher-confirm-type: correlated` + `publisher-returns`，
+> 发送失败会记日志；消费端异常分类是这一块最关键的设计。
+> 完整原理与排错见 `docs/notes/2026-10-22_RabbitMQ异步判题.md`。
+
 ---
 
 ## 5. 数据与配置
@@ -168,6 +200,7 @@
 |---|---|---|
 | MySQL | `localhost:3306/my_db` | 三个服务共用同一个库（**微服务里属于反模式**，见 §7） |
 | Redis | `localhost:6379` db1 | 共享 Session；后续可做缓存/限流 |
+| RabbitMQ | `127.0.0.1:5672`（SSH 隧道到 VM） | 判题消息；管理台 `15672` |
 | Nacos | `127.0.0.1:8848`，namespace `public` | 仅服务发现，**未启用配置中心** |
 | Sentinel | dashboard `localhost:8080` | 依赖已引入，**未配规则** |
 | Knife4j | user/question 开启 | 网关聚合在 `/doc.html` |
@@ -185,8 +218,10 @@
   Nacos + MySQL + Redis
   user/question/judge（127.0.0.1:8101-8103）
   gateway（0.0.0.0:8001）
+  5672/15672 ← SSH 隧道到 VM
 虚拟机：
   code-sandbox（192.168.221.45:8080）
+  rabbitmq（Docker，--network host）
 ```
 
 ### 6.2 生产（目标）
@@ -206,14 +241,13 @@
 
 | # | 问题 | 影响 | 计划 |
 |---|---|---|---|
-| 1 | 判题用线程池异步，不是 MQ | 重启丢任务、无法削峰 | 接 RabbitMQ（下一阶段） |
-| 2 | 判题无幂等 | 重复消费/重试会重复判 | 唯一键 + 状态机 |
-| 3 | 三个服务共用一个数据库 | 不能独立演进，join 耦合 | 先分表，后分库 |
-| 4 | 网关鉴权只有骨架 | 未登录请求依赖各服务自己拦 | 第 2 步接入 |
-| 5 | inner 无内部凭证 | 网络被打穿即裸奔 | `X-Internal-Token` 或 mTLS |
-| 6 | 沙箱地址/密钥硬编码 | 换环境要改代码 | 移到配置 + 环境变量 |
-| 7 | 测试很少 | 改动靠手测 | 先补核心链路测试 |
-| 8 | 无链路追踪 | 跨服务排错靠日志 | 引入 traceId |
+| 1 | 三个服务共用一个数据库 | 不能独立演进，join 耦合 | 先分表，后分库 |
+| 2 | 网关鉴权只有骨架 | 未登录请求依赖各服务自己拦 | 第 2 步接入 |
+| 3 | inner 无内部凭证 | 网络被打穿即裸奔 | `X-Internal-Token` 或 mTLS |
+| 4 | 沙箱地址/密钥硬编码 | 换环境要改代码 | 移到配置 + 环境变量 |
+| 5 | 测试很少 | 改动靠手测 | 先补核心链路测试 |
+| 6 | 无链路追踪 | 跨服务排错靠日志 | 引入 traceId |
+| 7 | 发送消息与落库非原子 | 落库成功、发消息失败会留下 WAITING | 本地消息表 + 定时补偿 |
 
 ---
 
@@ -231,7 +265,7 @@
 
 | 日期 | 变更 |
 |---|---|
-| 2026-10-22 | 建立 docs 体系；补充架构/规范/ADR |
+| 2026-10-22 | 判题改为 RabbitMQ 异步（DLQ + 幂等抢占）；建立 docs 体系 |
 | 2026-10-21 | 网关过滤器合并为 `GlobalAuthFilter`（inner 404 + 鉴权骨架） |
 | 2026-10-18 | inner 路径收敛；网关路由/跨域/文档聚合落地 |
 | 2026-10-17 | Feign 契约与跨服务调用打通 |

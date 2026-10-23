@@ -20,8 +20,8 @@ HaxOJ —— 在线判题系统后端（微服务版）。
 
 | 状态 | 内容 |
 |---|---|
-| ✅ 已完成 | 模块拆分、Nacos 注册、Feign 跨服务调用、网关路由 + 跨域 + inner 拦截、Redis 共享 Session、Knife4j 文档聚合 |
-| 🚧 进行中 | MQ 异步判题、判题幂等、链路追踪、压测数据 |
+| ✅ 已完成 | 模块拆分、Nacos 注册、Feign 跨服务调用、网关路由 + 跨域 + inner 拦截、Redis 共享 Session、Knife4j 文档聚合、**RabbitMQ 异步判题 + 幂等** |
+| 🚧 进行中 | 链路追踪、压测数据 |
 | ⛔ 未启用 | Nacos 配置中心、Sentinel 规则 |
 
 > 状态以本节为准；`README.md` 里的"当前进度"如果与这里冲突，以这里为准（README 正在同步）。
@@ -34,7 +34,7 @@ HaxOJ —— 在线判题系统后端（微服务版）。
 |---|---|
 | JDK | 11（源码级别 `java.version=1.8`） |
 | 构建 | Maven 3.9 |
-| 依赖服务 | MySQL 3306、Redis 6379、Nacos 8848 |
+| 依赖服务 | MySQL 3306、Redis 6379、Nacos 8848、RabbitMQ 5672 |
 | 沙箱 | 远程 `http://192.168.221.45:8080/sandbox/execute` |
 
 ```bash
@@ -89,6 +89,9 @@ mvn -pl <module> test
 | 入口 | 前端只连 **8001 网关**；业务服务只监听 `127.0.0.1` |
 | inner 接口 | 路径 `/api/inner/{service}/**`；网关 `GlobalAuthFilter` 一律 404；**不要**给 inner 开路由 |
 | 服务调用 | 用 `service-client` 的 Feign 契约，**不要**手写 HTTP 调其他服务 |
+| 判题触发 | 提交后发 MQ（`haxoj.judge.exchange` / `judge.submit`），**不要**再改回 `CompletableFuture + Feign` |
+| MQ 异常 | 业务异常 ack 丢弃；系统异常重置 WAITING + nack → DLQ；**不要** `requeue=true` |
+| MQ 幂等 | 状态检查 + 原子抢占（`claimQuestionSubmit`），重复消息只能有一个消费者继续 |
 | 登录态 | Redis 共享 Session（`spring.session.store-type: redis`，db 1） |
 | 判题 | question → Feign `doJudge` → judge → HTTP 调沙箱 |
 | 文档 | Knife4j 聚合在网关 `/doc.html`（生产应关闭） |

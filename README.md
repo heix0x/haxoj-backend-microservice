@@ -4,8 +4,8 @@
 
 > **当前进度说明（重要）**
 > 本文档只描述**代码里真实存在的状态**；更细的架构与决策见 [`docs/`](docs/README.md)，AI/新人先读 [`AGENTS.md`](AGENTS.md)。
-> - 已完成：模块拆分、依赖版本收敛、Nacos 服务注册、Sentinel 接入、远程代码沙箱对接、跨服务 Feign 调用、**网关路由 / 跨域 / inner 拦截**、**Redis 共享 Session**、Knife4j 文档聚合
-> - 进行中：MQ 异步判题、判题幂等、链路追踪、压测
+> - 已完成：模块拆分、依赖版本收敛、Nacos 服务注册、Sentinel 接入、远程代码沙箱对接、跨服务 Feign 调用、**网关路由 / 跨域 / inner 拦截**、**Redis 共享 Session**、Knife4j 文档聚合、**RabbitMQ 异步判题 + 幂等**
+> - 进行中：链路追踪、压测
 > - 未启用：Nacos 配置中心、Sentinel 规则
 
 ## 0. 文档
@@ -50,7 +50,7 @@
 | 持久层 | MyBatis-Plus | 3.5.2（`mybatis-plus-boot-starter` / `mybatis-plus-annotation`） |
 | 数据库 | MySQL | 驱动 `mysql-connector-j`，`jdbc:mysql://localhost:3306/my_db` |
 | 缓存 | Redis | `localhost:6379 / db 1`，**Spring Session 用它存登录态** |
-| 消息队列 | **未使用** | 无 RabbitMQ / RocketMQ / Kafka 依赖 |
+| 消息队列 | **RabbitMQ** | Spring AMQP（Boot BOM 管理）；判题异步化 + 死信队列 + 手动 ack |
 | 接口文档 | Knife4j | user / question 服务 `knife4j.enable: true` |
 | 工具库 | Hutool 5.8.8、Gson 2.9.1、commons-lang3、commons-collections4 4.4、Lombok 1.18.30 | — |
 | 对象存储 | 腾讯云 COS | `cos_api` 5.6.89（用户服务） |
