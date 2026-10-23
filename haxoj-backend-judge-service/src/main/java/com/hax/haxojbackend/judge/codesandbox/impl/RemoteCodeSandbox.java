@@ -13,7 +13,7 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.hax.haxojbackend.common.ErrorCode;
-import com.hax.haxojbackend.exception.BusinessException;
+import com.hax.haxojbackend.exception.SystemException;
 import com.hax.haxojbackend.judge.codesandbox.CodeSandbox;
 import com.hax.haxojbackend.judge.codesandbox.model.ExecuteCodeRequest;
 import com.hax.haxojbackend.judge.codesandbox.model.ExecuteCodeResponse;
@@ -55,8 +55,9 @@ public class RemoteCodeSandbox implements CodeSandbox {
                 .execute();
 
         if (!httpResponse.isOk()) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "调用代码沙箱失败：" + httpResponse.body());
+            // 沙箱不可用属于「换时间可能就好的系统异常」：不能当业务失败 ack 掉，
+            // 否则提交会永远卡在「判题中」。抛 SystemException 让消费者走死信 + 重置状态。
+            throw new SystemException(ErrorCode.SYSTEM_ERROR, "调用代码沙箱失败：" + httpResponse.body());
         }
 
         ExecuteCodeResponse executeCodeResponse = JSONUtil.toBean(httpResponse.body(), ExecuteCodeResponse.class);

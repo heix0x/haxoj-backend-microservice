@@ -48,6 +48,18 @@ public interface QuestionFeignClient {
     boolean updateQuestionSubmitById(@RequestBody QuestionSubmit questionSubmit);
 
     /**
+     * 原子抢占：把提交状态从「等待中」改为「判题中」。
+     *
+     * <p>用一条带条件的 UPDATE 完成状态流转，返回 true 表示本次抢占成功。
+     * 重复消费时只有一个消费者能抢到，避免同一份提交被判两次。</p>
+     *
+     * @param id 提交记录 id
+     * @return 是否抢占成功
+     */
+    @PostMapping("/question_submit/claim")
+    boolean claimQuestionSubmit(@RequestParam("id") long id);
+
+    /**
      * 题目通过数 +1（原子更新，避免并发丢更新）
      *
      * @param questionId 题目 id

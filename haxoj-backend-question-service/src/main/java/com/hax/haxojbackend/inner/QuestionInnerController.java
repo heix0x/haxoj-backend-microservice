@@ -1,8 +1,10 @@
 package com.hax.haxojbackend.inner;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.hax.haxojbackend.model.entity.Question;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
+import com.hax.haxojbackend.model.enums.QuestionSubmitStatusEnum;
 import com.hax.haxojbackend.service.QuestionService;
 import com.hax.haxojbackend.service.QuestionSubmitService;
 import javax.annotation.Resource;
@@ -57,6 +59,22 @@ public class QuestionInnerController {
     @PostMapping("/question_submit/update")
     public boolean updateQuestionSubmitById(@RequestBody QuestionSubmit questionSubmit) {
         return questionSubmitService.updateById(questionSubmit);
+    }
+
+    /**
+     * 原子抢占：等待中 → 判题中。
+     * 对应 QuestionFeignClient#claimQuestionSubmit
+     *
+     * <p>条件更新 {@code WHERE id=? AND status=WAITING}：
+     * 重复消息只会有一条能改成功，返回 false 的消费者直接跳过。</p>
+     */
+    @PostMapping("/question_submit/claim")
+    public boolean claimQuestionSubmit(@RequestParam("id") long id) {
+        LambdaUpdateWrapper<QuestionSubmit> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(QuestionSubmit::getId, id)
+                .eq(QuestionSubmit::getStatus, QuestionSubmitStatusEnum.WAITING.getValue())
+                .set(QuestionSubmit::getStatus, QuestionSubmitStatusEnum.RUNNING.getValue());
+        return questionSubmitService.update(wrapper);
     }
 
     /**
