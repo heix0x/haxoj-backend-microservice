@@ -1,5 +1,6 @@
 server:
-  port: 8001                          # 唯一对外端口；8101~8103 留给业务服务，8080 被沙箱/Sentinel 占用
+  # 唯一对外端口；8101~8103 留给业务服务，8080 被沙箱/Sentinel 占用
+  port: ${GATEWAY_PORT:8001}
 
 spring:
   application:
@@ -11,10 +12,10 @@ spring:
   cloud:
     nacos:
       discovery:
-        server-addr: 127.0.0.1:8848
-        username: nacos
-        password: nacos
-        namespace: public
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        namespace: ${NACOS_NAMESPACE:public}
 
     gateway:
       # ── 路由：外部路径 → 服务名 ──────────────────────────────
@@ -64,7 +65,7 @@ spring:
 # 访问入口：http://localhost:8001/doc.html
 knife4j:
   gateway:
-    enabled: true                  # 总开关；生产环境务必置 false，否则等于把接口清单对外公开
+    enabled: ${KNIFE4J_ENABLED:true}   # 总开关；生产环境务必置 false，否则等于把接口清单对外公开
     strategy: discover             # discover=从 Nacos 自动发现子服务，服务上下线文档自动跟随，无需改配置
     discover:
       enabled: true

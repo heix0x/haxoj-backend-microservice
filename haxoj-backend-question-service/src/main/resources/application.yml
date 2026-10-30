@@ -15,21 +15,19 @@ spring:
     store-type: redis
     # 30 天过期
     timeout: 2592000
-  # 数据库配置
-  # todo 需替换配置
+  # 数据库配置（默认值 = 本机开发库；换环境用 MYSQL_* 环境变量覆盖，勿改此处）
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/my_db
-    username: root
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:my_db}
+    username: ${MYSQL_USER:root}
     password: ${MYSQL_PASSWORD:}
-  # Redis 配置
-  # todo 需替换配置
+  # Redis 配置（共享 Session，db 1）
   redis:
-    database: 1
-    host: localhost
-    port: 6379
+    database: ${REDIS_DB:1}
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
     timeout: 5000
-    password:
+    password: ${REDIS_PASSWORD:}
   # RabbitMQ（host 默认 127.0.0.1：本机安装或 SSH 隧道；连 VM 时用环境变量覆盖）
   rabbitmq:
     host: ${RABBITMQ_HOST:127.0.0.1}
@@ -53,22 +51,23 @@ spring:
     nacos:
       discovery:
         # 本地 Nacos（standalone 模式），原阿里云 MSE 公网地址已不可解析
-        server-addr: 127.0.0.1:8848
-        username: nacos
-        password: nacos
-        namespace: public
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        namespace: ${NACOS_NAMESPACE:public}
         # 注册回环地址：与 server.address 成对，避免 Nacos 登记成局域网 IP 后 Feign 连不上
-        ip: 127.0.0.1
+        # ⚠️ NACOS_REGISTER_IP 与 SERVER_ADDRESS 必须一起改
+        ip: ${NACOS_REGISTER_IP:127.0.0.1}
     # 流量防护 Sentinel
     sentinel:
       transport:
-        dashboard: localhost:8080
+        dashboard: ${SENTINEL_DASHBOARD:localhost:8080}
       eager: true
 server:
   # 只监听回环：业务端口不对局域网/公网开放，外部只能经网关 8001 进来
-  # 与下方 nacos.discovery.ip 必须成对改，否则 Feign/网关会连到未监听的地址
-  address: 127.0.0.1
-  port: 8102
+  # 与上方 nacos.discovery.ip 必须成对改，否则 Feign/网关会连到未监听的地址
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${QUESTION_PORT:8102}
   servlet:
     context-path: /api
     # cookie 30 天过期
@@ -86,7 +85,7 @@ mybatis-plus:
       logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
 # 接口文档配置
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLED:true}
   openapi:
     title: "接口文档"
     version: 1.0
