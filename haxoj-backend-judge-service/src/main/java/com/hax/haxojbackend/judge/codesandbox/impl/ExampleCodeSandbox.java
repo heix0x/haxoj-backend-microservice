@@ -7,14 +7,19 @@ import com.hax.haxojbackend.model.dto.judge.JudgeInfo;
 import com.hax.haxojbackend.model.enums.JudgeInfoMessageEnum;
 import com.hax.haxojbackend.model.enums.QuestionSubmitStatusEnum;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 
 /**
  * 示例代码沙箱（仅为了跑通业务流程）
+ *
+ * <p>bean 名 {@code example} 就是 {@link com.hax.haxojbackend.judge.codesandbox.CodeSandboxFactory}
+ * 查表用的 key，与 {@code codesandbox.type} 的取值一致。</p>
  */
 @Slf4j
+@Component("example")
 public class ExampleCodeSandbox implements CodeSandbox {
 
     @Override

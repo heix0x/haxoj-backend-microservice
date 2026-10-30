@@ -12,6 +12,7 @@ import com.hax.haxojbackend.judge.codesandbox.model.ExecuteCodeResponse;
 import com.hax.haxojbackend.judge.strategy.JudgeContext;
 import com.hax.haxojbackend.model.dto.judge.JudgeInfo;
 import com.hax.haxojbackend.model.dto.question.JudgeCase;
+import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitFinishRequest;
 import com.hax.haxojbackend.model.entity.Question;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
 import com.hax.haxojbackend.model.enums.JudgeInfoMessageEnum;
@@ -32,6 +33,11 @@ public class JudgeServiceImpl implements JudgeService {
     // 题目与提交记录都归 question-service 管，这里通过 Feign 远程调用
     @Resource
     private QuestionFeignClient questionFeignClient;
+
+    // 沙箱工厂本身是 Spring bean：它持有所有 CodeSandbox 实现，
+    // 而实现类的地址/密钥要靠 @Value 注入，所以不能再用静态方法 new 出来
+    @Resource
+    private CodeSandboxFactory codeSandboxFactory;
 
     @Value("${codesandbox.type:example}")
     private String type;
@@ -65,10 +71,8 @@ public class JudgeServiceImpl implements JudgeService {
             return questionSubmit;
         }
 
-        QuestionSubmit questionSubmitUpdate;
-
         // 开始调用沙箱进行判断
-        CodeSandbox codeSandbox = CodeSandboxFactory.newInstance(type);
+        CodeSandbox codeSandbox = codeSandboxFactory.newInstance(type);
         codeSandbox = new CodeSandboxProxy(codeSandbox);
         ExecuteCodeRequest executeCodeRequest = new ExecuteCodeRequest();
         executeCodeRequest.setCode(questionSubmit.getCode());
@@ -108,30 +112,27 @@ public class JudgeServiceImpl implements JudgeService {
                 ? QuestionSubmitStatusEnum.SUCCEED
                 : QuestionSubmitStatusEnum.FAILED;
 
-        // 修改本次提交记录的状态和判题信息
-        questionSubmitUpdate = new QuestionSubmit();
-        questionSubmitUpdate.setId(questionSubmitId);
-        questionSubmitUpdate.setStatus(statusEnum.getValue());
-        questionSubmitUpdate.setJudgeInfo(JSONUtil.toJsonStr(judgeInfo));
-        boolean updateResult = questionFeignClient.updateQuestionSubmitById(questionSubmitUpdate);
-        if (!updateResult) {
-            // 系统异常：回写失败，换个时间重试可能成功 → 应进死信，不能当业务异常丢弃
-            throw new SystemException(ErrorCode.OPERATION_ERROR, "题目状态更新错误");
+        // 落定判题结果：状态 + 判题信息 +（通过时）题目通过数，由 question-service 在一个事务里写。
+        // 为什么不再分两次 Feign 调用？两次调用之间断一次就会重试，而「通过数 +1」不是幂等的，
+        // 重试一次就多加一次 —— 这种脏数据不会报错，只会让通过率慢慢失真。
+        String judgeInfoJson = JSONUtil.toJsonStr(judgeInfo);
+        QuestionSubmitFinishRequest finishRequest = new QuestionSubmitFinishRequest();
+        finishRequest.setId(questionSubmitId);
+        finishRequest.setStatus(statusEnum.getValue());
+        finishRequest.setJudgeInfo(judgeInfoJson);
+        boolean finished = questionFeignClient.finishQuestionSubmit(finishRequest);
+        if (!finished) {
+            // 状态既不是「判题中」也不是终态：可能是状态机被别的路径改过。
+            // 换时间重试有意义 → 抛系统异常，交给消费者重置 + 进死信
+            throw new SystemException(ErrorCode.OPERATION_ERROR, "提交状态落定失败");
         }
 
-        // 判题通过时，题目的通过数 +1
-        if (QuestionSubmitStatusEnum.SUCCEED.equals(statusEnum)) {
-            // 原单体代码用 UpdateWrapper 直接更新 question 表；那张表属于 question-service，
-            // 重构后改成「具名方法」：调用方只传 questionId，原子更新（acceptedNum = acceptedNum + 1）
-            // 由 question-service 自己执行，既避免并发丢更新，又不让判题服务碰别人的库
-            boolean acceptedUpdateResult = questionFeignClient.updateQuestionAcceptedNum(questionId);
-            if (!acceptedUpdateResult) {
-                // 系统异常：此时判题结果已写入，只是通过数没加上 —— 必须重试，不能静默丢弃
-                throw new SystemException(ErrorCode.OPERATION_ERROR, "更新题目通过数失败");
-            }
-        }
-
-        return questionSubmitUpdate;
+        // 真实结果已经落库，这里只是把「这件事做完了」带回给调用方
+        QuestionSubmit finishedSubmit = new QuestionSubmit();
+        finishedSubmit.setId(questionSubmitId);
+        finishedSubmit.setStatus(statusEnum.getValue());
+        finishedSubmit.setJudgeInfo(judgeInfoJson);
+        return finishedSubmit;
 
     }
 

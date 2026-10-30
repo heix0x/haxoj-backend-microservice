@@ -3,7 +3,9 @@ package com.hax.haxojbackend.judge.codesandbox.impl;
 import com.hax.haxojbackend.judge.codesandbox.CodeSandbox;
 import com.hax.haxojbackend.judge.codesandbox.model.ExecuteCodeRequest;
 import com.hax.haxojbackend.judge.codesandbox.model.ExecuteCodeResponse;
+import org.springframework.stereotype.Component;
 
+@Component("thirdParty")
 public class ThirdPartyCodeSandbox implements CodeSandbox {
 
     @Override

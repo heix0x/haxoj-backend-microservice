@@ -1,7 +1,7 @@
 package com.hax.haxojbackend.inner;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitFinishRequest;
 import com.hax.haxojbackend.model.entity.Question;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
 import com.hax.haxojbackend.model.enums.QuestionSubmitStatusEnum;
@@ -78,18 +78,17 @@ public class QuestionInnerController {
     }
 
     /**
-     * 题目通过数 +1（原子更新，避免并发丢更新）
-     * 对应 QuestionFeignClient#updateQuestionAcceptedNum
+     * 落定判题结果（状态 + 通过数，同一事务）
+     * 对应 QuestionFeignClient#finishQuestionSubmit
      *
-     * <p>原单体代码在 judge-service 里直接 new 了一个 UpdateWrapper 去操作 question 表，
-     * 但那张表属于 question-service。重构后把「写库」这件事留在数据归属方，
-     * 调用方只发一个 questionId，原子更新语句由本服务执行。</p>
+     * <p>「改状态」和「通过数 +1」必须一起成功或一起失败。分成两次远程调用时，
+     * 只要中间断一次，重试就会把通过数多加一遍 —— 通过数是展示排名和通过率的依据，
+     * 多加一次不会报错，只会悄悄变脏。</p>
+     *
+     * <p>原子更新语句由本服务执行，调用方只说「这条提交判完了，结论是什么」。</p>
      */
-    @PostMapping("/question_submit/update/accepted_num")
-    public boolean updateQuestionAcceptedNum(@RequestParam("questionId") long questionId) {
-        UpdateWrapper<Question> updateWrapper = new UpdateWrapper<>();
-        updateWrapper.eq("id", questionId);
-        updateWrapper.setSql("acceptedNum = acceptedNum + 1");
-        return questionService.update(updateWrapper);
+    @PostMapping("/question_submit/finish")
+    public boolean finishQuestionSubmit(@RequestBody QuestionSubmitFinishRequest request) {
+        return questionSubmitService.finishQuestionSubmit(request);
     }
 }

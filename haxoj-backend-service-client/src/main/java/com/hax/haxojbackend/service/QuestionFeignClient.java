@@ -1,5 +1,6 @@
 package com.hax.haxojbackend.service;
 
+import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitFinishRequest;
 import com.hax.haxojbackend.model.entity.Question;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -11,11 +12,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 /**
  * 题目服务的远程调用契约（Feign 客户端），主要供 judge-service 判题时使用。
  *
- * <p>注意最后一个 {@link #updateQuestionAcceptedNum(long)}：
- * 原单体代码里判题通过后是用 MyBatis-Plus 的 {@code UpdateWrapper} 做
- * {@code acceptedNum = acceptedNum + 1} 的原子更新。{@code UpdateWrapper} 是本地库对象，
- * Feign 无法把它序列化成 HTTP 请求，所以必须换成「具名方法」——由数据归属方
- * （question-service）自己去做原子更新，调用方只传 questionId。</p>
+ * <p>契约遵循「谁的数据谁写」：判题服务需要改提交状态、给通过数加一，
+ * 都不是自己 update，而是调这里的具名方法，由 question-service 执行。
+ * 这样 {@code UpdateWrapper} 这类本地库对象不会出现在 HTTP 边界上，
+ * 也便于把「状态 + 通过数」放进同一个事务（见 {@link #finishQuestionSubmit}）。</p>
  */
 @FeignClient(name = "haxoj-backend-question-service", path = "/api/inner/question")
 public interface QuestionFeignClient {
@@ -60,11 +60,22 @@ public interface QuestionFeignClient {
     boolean claimQuestionSubmit(@RequestParam("id") long id);
 
     /**
-     * 题目通过数 +1（原子更新，避免并发丢更新）
+     * 落定判题结果：状态从「判题中」改为终态，判题信息一并写入。
      *
-     * @param questionId 题目 id
-     * @return 是否成功
+     * <p>为什么要把「写状态」和「通过数 +1」合成一个接口？原来是两次 Feign 调用，
+     * 中间任何一次失败都会重试，而 {@code acceptedNum + 1} 不是幂等的 ——
+     * 重试一次就多加一次。现在由提供方在同一个事务里完成，重复调用不会重复累加。</p>
+     *
+     * <p>返回值语义（调用方只需要关心「要不要重试」）：</p>
+     * <ul>
+     *   <li>{@code true}  —— 提交现在已经是终态：本次落定成功，或此前已被落定（幂等命中）；</li>
+     *   <li>{@code false} —— 状态既不是「判题中」也不是终态（记录不存在、仍是「待判题」），
+     *       说明状态机被别的路径改过，可以重试。</li>
+     * </ul>
+     *
+     * @param request 提交 id + 目标状态（2 成功 / 3 失败）+ 判题信息
+     * @return 是否已处于终态
      */
-    @PostMapping("/question_submit/update/accepted_num")
-    boolean updateQuestionAcceptedNum(@RequestParam("questionId") long questionId);
+    @PostMapping("/question_submit/finish")
+    boolean finishQuestionSubmit(@RequestBody QuestionSubmitFinishRequest request);
 }

@@ -2,14 +2,18 @@ package com.hax.haxojbackend.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hax.haxojbackend.common.ErrorCode;
 import com.hax.haxojbackend.constant.CommonConstant;
 import com.hax.haxojbackend.exception.BusinessException;
+import com.hax.haxojbackend.exception.SystemException;
 import com.hax.haxojbackend.exception.ThrowUtils;
 import com.hax.haxojbackend.mapper.QuestionSubmitMapper;
 import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitAddRequest;
+import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitFinishRequest;
 import com.hax.haxojbackend.model.dto.questionsubmit.QuestionSubmitQueryRequest;
 import com.hax.haxojbackend.model.entity.Question;
 import com.hax.haxojbackend.model.entity.QuestionSubmit;
@@ -30,14 +34,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * @description 针对表【question_submit(题目提交)】的数据库操作Service实现
  * @createDate 2026-09-07 10:04:00
  */
+@Slf4j
 @Service
 public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper, QuestionSubmit>
         implements QuestionSubmitService {
@@ -74,6 +81,12 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         if (languageEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "编程语言错误");
         }
+        // 枚举里保留 c++ / golang 是给将来扩展用的，但沙箱目前只实现了 Java。
+        // 不拦的话，这两种语言会在沙箱端返回 status=2（平台故障），
+        // 用户看到的是「系统错误」—— 他会去等，而不是换语言。
+        if (languageEnum != QuestionSubmitLanguageEnum.JAVA) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前仅支持 Java 提交");
+        }
 
         // 判断题目是否存在
         long questionId = questionSubmitAddRequest.getQuestionId();
@@ -96,6 +109,9 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         // synchronized (this) 语法意义和作用是：
         // 对当前对象进行加锁，确保在同一时间只有一个线程可以执行同步块中的代码，
         // 从而避免多个线程同时更新题目提交数时可能出现的竞态条件。
+        // TODO 技术债：这里的锁只对当前 JVM 有效，多实例部署下 submitNum 仍会丢更新。
+        //  正确做法是交给数据库：setSql("submitNum = submitNum + 1")，与通过数的加法一致。
+        //  本次不在范围内（改了会影响并发写入的验证面），先留标记。
         synchronized (this) {
             // 1. 创建一个只含 id 的新对象（其他字段为 null，不会被更新）
             Question updateQuestion = new Question();
@@ -118,6 +134,85 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         judgeMessageProducer.sendJudgeMessage(questionSubmitId);
 
         return questionSubmitId;
+    }
+
+    /**
+     * 落定判题结果（状态 + 通过数，单事务）。
+     *
+     * <p>三条不变量：</p>
+     * <ol>
+     *   <li>只有「判题中」能落定 —— 条件更新 {@code WHERE id=? AND status=1}，
+     *       重复消息只有一条能改成功，这是幂等的第一道闸；</li>
+     *   <li>「已是终态」直接返回 true —— 重放/重试不会把状态往回拨，也不会重复 +1；</li>
+     *   <li>状态与通过数同生同死 —— +1 失败就整笔回滚，不留「状态成功、通过数少加」的中间态。</li>
+     * </ol>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean finishQuestionSubmit(QuestionSubmitFinishRequest request) {
+        if (request == null || request.getId() == null || request.getStatus() == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "落定参数不完整");
+        }
+        Integer targetStatus = request.getStatus();
+        // 只接受终态：从外部把状态改成 WAITING/RUNNING 等于把状态机往回拨，
+        // 会让已经被判过的提交重新变得「可抢占」
+        ThrowUtils.throwIf(!isFinalStatus(targetStatus), ErrorCode.PARAMS_ERROR, "落定目标状态不合法");
+
+        long submitId = request.getId();
+        QuestionSubmit current = this.getById(submitId);
+        if (current == null) {
+            log.warn("落定失败，提交不存在: submitId={}", submitId);
+            return false;
+        }
+        if (isFinalStatus(current.getStatus())) {
+            log.info("提交已是终态，落定幂等命中: submitId={}, status={}", submitId, current.getStatus());
+            return true;
+        }
+
+        LambdaUpdateWrapper<QuestionSubmit> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(QuestionSubmit::getId, submitId)
+                .eq(QuestionSubmit::getStatus, QuestionSubmitStatusEnum.RUNNING.getValue())
+                .set(QuestionSubmit::getStatus, targetStatus)
+                .set(QuestionSubmit::getJudgeInfo, request.getJudgeInfo());
+        boolean updated = this.update(wrapper);
+        if (!updated) {
+            // 0 行有两种可能：并发下已被别的消费者落定（正常），或状态不是「判题中」（异常）。
+            // 回读一次即可区分，只有后者才需要调用方重试。
+            QuestionSubmit latest = this.getById(submitId);
+            boolean alreadyFinal = latest != null && isFinalStatus(latest.getStatus());
+            log.info("落定未生效: submitId={}, 当前状态={}, 已是终态={}", submitId,
+                    latest == null ? null : latest.getStatus(), alreadyFinal);
+            return alreadyFinal;
+        }
+
+        // 只有「本次真的把状态推进到成功」才 +1。幂等命中的分支在上面已经返回，
+        // 所以这里不会因为重复消息而重复累加。
+        if (QuestionSubmitStatusEnum.SUCCEED.getValue().equals(targetStatus)) {
+            Long questionId = current.getQuestionId();
+            Question question = questionId == null ? null : questionService.getById(questionId);
+            if (question == null) {
+                // 题目被删了：提交本身仍应落定为成功，只是没有地方可以加数
+                log.warn("判题通过但题目不存在，跳过通过数累加: submitId={}, questionId={}", submitId, questionId);
+                return true;
+            }
+            UpdateWrapper<Question> acceptedNumWrapper = new UpdateWrapper<>();
+            acceptedNumWrapper.eq("id", questionId);
+            acceptedNumWrapper.setSql("acceptedNum = acceptedNum + 1");
+            boolean incremented = questionService.update(acceptedNumWrapper);
+            if (!incremented) {
+                // 抛异常触发回滚：宁可下次重试时再判一次，也不能留下「状态成功、通过数没加」的脏数据
+                throw new SystemException(ErrorCode.OPERATION_ERROR, "更新题目通过数失败");
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 是否是终态（成功 / 失败）。WAITING、RUNNING 都不算。
+     */
+    private boolean isFinalStatus(Integer status) {
+        return QuestionSubmitStatusEnum.SUCCEED.getValue().equals(status)
+                || QuestionSubmitStatusEnum.FAILED.getValue().equals(status);
     }
 
     /**
