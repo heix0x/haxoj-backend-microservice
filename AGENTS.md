@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > 给 AI 与新同事的工作手册。**先读这页**，需要细节再看 `docs/README.md` 的索引。
-> 最后更新：2026-10-22
+> 最后更新：2026-10-27
 
 ---
 
@@ -35,7 +35,13 @@ HaxOJ —— 在线判题系统后端（微服务版）。
 | JDK | 11（源码级别 `java.version=1.8`） |
 | 构建 | Maven 3.9 |
 | 依赖服务 | MySQL 3306、Redis 6379、Nacos 8848、RabbitMQ 5672 |
-| 沙箱 | 远程 `http://192.168.221.45:8080/sandbox/execute` |
+| 沙箱 | 远程，地址由 `SANDBOX_EXECUTE_URL` 注入（默认 `http://192.168.221.45:8080/sandbox/execute`） |
+| **一键运行** | `.\ops\dev-up.ps1`（在仓库外层 `haxoj\ops\`；`-SkipBuild` / `-NoVm` / `-RebuildSandbox`） |
+
+> **配置不要再写死**：地址、账号、密钥一律写成 `${VAR:默认值}`，
+> 真实值放 `ops/env/dev.env`（不入库）+ 运行时环境变量。
+> 分层规矩与理由见 `ops/README.md` §6。**IP 会漂（虚拟机）、密码会换，
+> 任何要「改代码重新编译」才能换的东西都是错的。**
 
 ```bash
 # 全量构建
@@ -93,16 +99,21 @@ mvn -pl <module> test
 | MQ 异常 | 业务异常 ack 丢弃；系统异常重置 WAITING + nack → DLQ；**不要** `requeue=true` |
 | MQ 幂等 | 状态检查 + 原子抢占（`claimQuestionSubmit`），重复消息只能有一个消费者继续 |
 | 登录态 | Redis 共享 Session（`spring.session.store-type: redis`，db 1） |
-| 判题 | question → Feign `doJudge` → judge → HTTP 调沙箱 |
+| 判题 | 提交 → MQ → judge 消费 → HTTP 调沙箱 → **单事务 `finish` 落定**（状态 + 通过数） |
 | 文档 | Knife4j 聚合在网关 `/doc.html`（生产应关闭） |
 
 ---
 
 ## 7. 边界（不要做，除非先问）
 
+> 这些是**默认约束，不是不可讨论的宪法**。当初的取舍可能有短视之处（例如「服务只绑 127.0.0.1
+> 就安全」只挡住了别的机器，挡不住本机进程）。要突破某一条时，说清目标与代价，改完同步文档，
+> 不要默默绕过。
+
 1. 不要新增依赖（父 pom 已锁版本，新增容易引发冲突）。
 2. 不要改端口、`context-path`、`spring.application.name`（Nacos/路由都依赖）。
-3. 不要动 `common` / `model` 的公共字段（全服务受影响）。
+3. 不要动 `common` / `model` 的公共字段而不评估影响（全服务共用）。**可以改**，但要在同一个改动里
+   同步 `service-client` 契约、`inner` 实现、所有调用方，并说明影响面。
 4. 不要把真实密钥、密码、token 写进代码、配置、文档、日志。
 5. 不要绕过 Feign 契约直接写 HTTP 调别的服务。
 6. 不要给 `judge-service` 开对外路由。
@@ -134,8 +145,14 @@ mvn -pl <module> test
 
 ## 10. 文档入口
 
+**接手顺序建议**：`docs/known-issues.md`（现在有什么坑）→ `docs/roadmap.md`（先做什么）→ `docs/architecture.md`（系统怎么组织）→ 需要细节时再翻 `docs/notes/`。
+
 - 文档索引：`docs/README.md`
 - 系统地图：`docs/architecture.md`
 - 开发规范：`docs/conventions.md`
-- 历史实现记录：`docs/notes/`（按日期，**不要改历史，只追加**）
+- 改造日志：`docs/changelog.md`（时间倒序，新条目在前；旧结论可就地修正并标注核对日期）
+- 已知问题与风险：`docs/known-issues.md`（快照，修复后改状态、不删条目）
+- 下一步建议：`docs/roadmap.md`（快照，含验收标准与"已否决"记录）
+- 实现记录：`docs/notes/`（**单一正文**：同一主题只有一份，过时就地更新，不留旧版、不另写平行文档）
+- 功能解剖：`docs/anatomy/`（极小颗粒度功能讲解，**随代码更新**；命名与规范见其 README）
 - 决策记录：`docs/adr/`

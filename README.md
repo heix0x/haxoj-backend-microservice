@@ -16,6 +16,9 @@
 | [docs/README.md](docs/README.md) | 文档索引（按问题找文档） |
 | [docs/architecture.md](docs/architecture.md) | 系统架构、模块、数据流、关键设计 |
 | [docs/conventions.md](docs/conventions.md) | 开发规范 |
+| [docs/changelog.md](docs/changelog.md) | 改造日志（时间倒序，新条目在前） |
+| [docs/known-issues.md](docs/known-issues.md) | 已知问题与风险（当前快照，带证据） |
+| [docs/roadmap.md](docs/roadmap.md) | 下一步建议（优先级与验收标准） |
 | [docs/adr/](docs/adr/) | 架构决策记录（为什么这么选） |
 | [docs/notes/](docs/notes/) | 历史实现记录（按日期） |
 
@@ -103,8 +106,8 @@ flowchart LR
 **服务间调用关系与数据流**
 
 1. **前端 → 后端**：前端通过 `VITE_API_BASE_URL` 访问后端（当前指向网关 `http://localhost:8001`），生成的接口路径自带 `/api` 前缀。
-2. **题目提交链路**：`question-service` 收到提交后写入 `question_submit` 表，状态置为 `WAITING`，再通过 `JudgeFeignClient.doJudge()` **远程调用 `judge-service`**（包在 `CompletableFuture.runAsync` 中，异步执行、不阻塞用户请求），随后立即返回 `questionSubmitId`。改用远程代理后本地循环依赖消失，原先的 `@Lazy` 已移除。
-3. **判题链路**：`JudgeServiceImpl.doJudge()` 通过 `QuestionFeignClient` 读取提交记录与题目 → 通过 `CodeSandboxFactory` 按 `codesandbox.type` 选沙箱 → `remote` 模式下由 `RemoteCodeSandbox` **以 HTTP 调用独立的沙箱服务**，请求头 `auth = MD5("secretKey")` → 按语言策略（`JavaLanguageJudgeStrategy` / `DefaultJudgeStrategy`）比对输出 → 再通过 `QuestionFeignClient` 回写提交状态与 `judgeInfo`。
+2. **题目提交链路**：`question-service` 收到提交后写入 `question_submit` 表，状态置为 `WAITING`，随后**发一条 MQ 消息**（`haxoj.judge.exchange` / `judge.submit`，消息体只带 `questionSubmitId`）并立即返回，不阻塞用户请求。判题服务重启、变慢都不会拖住提交接口，在途任务也不会丢（消息还在队列里）。
+3. **判题链路**：`judge-service` 消费消息 → 通过 `QuestionFeignClient` **原子抢占**（`WAITING → RUNNING`）并读取提交与题目 → 通过 `CodeSandboxFactory` 按 `codesandbox.type` 选沙箱 → `remote` 模式下由 `RemoteCodeSandbox` **以 HTTP 调用独立的沙箱服务**，请求头 `auth = MD5("secretKey")` → 按语言策略（`JavaLanguageJudgeStrategy` / `DefaultJudgeStrategy`）比对输出 → 通过 `QuestionFeignClient.finishQuestionSubmit()` **在一个事务里落定状态与题目通过数**。
 4. **沙箱地址**：`RemoteCodeSandbox` 中的 `SANDBOX_EXECUTE_URL` 当前硬编码为 `http://192.168.221.45:8080/sandbox/execute`。
 
 **服务间调用矩阵（Feign）**
@@ -112,8 +115,8 @@ flowchart LR
 | 消费方 | 使用的契约 | 用途 |
 | --- | --- | --- |
 | `question-service` | `UserFeignClient` | `getById` / `listByIds`，补全提交记录中的用户信息 |
-| `question-service` | `JudgeFeignClient` | `doJudge`，异步触发判题 |
-| `judge-service` | `QuestionFeignClient` | 读提交 / 题目、回写状态、题目通过数 +1 |
+| `question-service` | `JudgeFeignClient` | ~~`doJudge` 异步触发判题~~ **已改为 MQ 触发**，契约保留但不再用于提交链路 |
+| `judge-service` | `QuestionFeignClient` | 读提交 / 题目、原子抢占、单事务落定（状态 + 判题信息 + 通过数） |
 | `user-service` | — | 纯提供方，未引入 OpenFeign |
 
 > 提供方一侧由各自的 `XxxInnerController`（`/api/inner/user`、`/api/inner/question`、`/api/inner/judge`）承接这些调用。

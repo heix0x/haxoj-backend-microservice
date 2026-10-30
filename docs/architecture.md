@@ -105,12 +105,18 @@
        ② Feign 读 submission / question
        ③ HTTP POST 沙箱 /sandbox/execute（带鉴权头）
        ④ 比对输出，得出通过/失败
-       ⑤ Feign 回写提交状态 + 题目通过数
-  → 成功 ack；系统异常重置 WAITING + nack → 死信队列
+       ⑤ Feign 一次 finish：提交状态 + 判题信息（通过时含题目通过数）同事务落定
+  → 成功 ack
+  → 业务异常（不可重试）：尽力落定为 FAILED + System Error，再 ack
+  → 系统异常（沙箱挂了/网络）：重置 WAITING + nack → 死信队列
 ```
 
 > MQ 把「提交」和「判题」解耦：提交接口不再等待判题服务，服务重启也不会丢在途任务
-> （消息还在队列里）。幂等靠状态检查 + 原子抢占（见 §4.6）。
+> （消息还在队列里）。幂等靠状态检查 + 原子抢占 + 单事务落定（见 §4.6）。
+
+> **为什么回写只有一次调用**：原来是「写状态」和「通过数 +1」两次 Feign，
+> 中间失败就会重试，而 +1 不是幂等的 —— 重试一次就多加一次，通过率悄悄失真。
+> 现在由 question-service 在同一个事务里条件更新状态、成功才 +1，重复调用不会重复累加。
 
 ---
 
@@ -186,7 +192,10 @@
 
 - 先检查状态：非 WAITING 直接跳过；
 - 再原子抢占：`UPDATE ... SET status=RUNNING WHERE id=? AND status=WAITING`；
-- 只有抢占成功的消费者继续判题。
+- 只有抢占成功的消费者继续判题；
+- 落定只认「判题中 → 终态」：`UPDATE ... SET status=? WHERE id=? AND status=RUNNING`，
+  0 行时回读区分「已被别人落定」与「状态异常」，只有后者才重试；
+- 通过数 +1 与状态写在**同一个事务**里，重放、重试都不会重复累加。
 
 > 生产端开了 `publisher-confirm-type: correlated` + `publisher-returns`，
 > 发送失败会记日志；消费端异常分类是这一块最关键的设计。
@@ -258,6 +267,9 @@
 | [`../README.md`](../README.md) | 项目介绍、快速开始 |
 | [`../AGENTS.md`](../AGENTS.md) | AI/新人的工作手册 |
 | [`conventions.md`](conventions.md) | 开发规范 |
+| [`changelog.md`](changelog.md) | 改造日志（时间倒序，新条目在前） |
+| [`known-issues.md`](known-issues.md) | 已知问题与风险（当前快照） |
+| [`roadmap.md`](roadmap.md) | 下一步建议（含验收标准） |
 | [`adr/`](adr/) | 关键决策记录 |
 | [`notes/`](notes/) | 历史实现记录 |
 
@@ -265,6 +277,7 @@
 
 | 日期 | 变更 |
 |---|---|
+| 2026-10-27 | 判题落定合并为单事务 finish（通过数幂等）；修正 Java 超时宽限与空值判定；语言口径只保留 Java |
 | 2026-10-22 | 判题改为 RabbitMQ 异步（DLQ + 幂等抢占）；建立 docs 体系 |
 | 2026-10-21 | 网关过滤器合并为 `GlobalAuthFilter`（inner 404 + 鉴权骨架） |
 | 2026-10-18 | inner 路径收敛；网关路由/跨域/文档聚合落地 |
